@@ -1,4 +1,4 @@
-# MDToC
+# md_toc
 A simple way to add a table of contents to a pure markdown file.
 
 ```
