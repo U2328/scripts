@@ -57,5 +57,5 @@ optional arguments:
   -v, --verbose  display processing state
 ```
 *made on 2018-07-22 by Tim Fischer*
-*finalised on 2018-08-02 by Tim Fischer*
+*last worked on 2018-08-04 by Tim Fischer*
 

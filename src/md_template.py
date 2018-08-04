@@ -87,8 +87,10 @@ class Filter:
         func = match.group("func")
         args = []
         if match.group("args"):
-            for arg in cls._arg_re.finditer(match.group("args")):
-                args.append(arg.group("arg"))
+            args.extend(
+                x.group("arg")
+                for x in cls._arg_re.finditer(match.group("args"))
+            )
         return func, args
 
     @classmethod
