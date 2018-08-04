@@ -6,6 +6,11 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from abc import ABCMeta, abstractmethod
 
 
+# == Exceptions
+class MissingKeyError(Exception):
+    ...
+
+
 # == Classes
 class DataContainer(metaclass=ABCMeta):
     __slots__ = ('_data')
@@ -35,18 +40,23 @@ class JSON_DataContainer(DataContainer, file_type="json"):
         else:
             self._data = json.load(file)
 
-    def get_value(self, key):
+    def get_value(self, key, default=None):
         assert isinstance(key, str), "Key musst be of type str..."
         key_chain = key.split('.')
         current = self._data
         for key_chain_link in key_chain:
-            current = current[key_chain_link]
+            try:
+                current = current[key_chain_link]
+            except KeyError as e:
+                raise MissingKeyError(e)
         return current
 
 
 class Filter:
     _filters = {}
     _cache = {}
+    _filter_re = re.compile(r"^(?P<func>[^()]+)(?:\((?P<args>.*)\))?$")
+    _arg_re = re.compile(r"(?P<arg>[^(),]+(?:\([^()]*\))?)")
 
     @classmethod
     def apply_filters(cls, value, filters):
@@ -57,13 +67,14 @@ class Filter:
 
     @classmethod
     def _apply_filter(cls, value, filter_string):
-        if filter_string in cls._cache:
-            return cls._cache[filter_string]
+        cache_key = str(value) + "____" + filter_string
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
         elif filter_string != "":
             try:
                     func, args = cls._parse_filter(filter_string)
                     value = cls._filters[func](value, *args)
-                    cls._cache[filter_string] = value
+                    cls._cache[cache_key] = value
                     return value
             except KeyError as e:
                     raise SyntaxError(f"unkown filter \"{func}\"")
@@ -72,19 +83,12 @@ class Filter:
 
     @classmethod
     def _parse_filter(cls, filter_string):
-        func, args = (
-            filter_string.split("(", 1)
-            if "(" in filter_string else
-            (filter_string, [])
-        )
-        args = [
-            arg
-            for arg in map(
-                lambda x: x.strip(),
-                args[:-1].split(",")
-            )
-            if arg != ""
-        ] if len(args) > 0 else []
+        match = cls._filter_re.fullmatch(filter_string)
+        func = match.group("func")
+        args = []
+        if match.group("args"):
+            for arg in cls._arg_re.finditer(match.group("args")):
+                args.append(arg.group("arg"))
         return func, args
 
     @classmethod
@@ -96,22 +100,25 @@ class Filter:
 # == Filters
 class Link:
     @Filter.register
-    @staticmethod
     def as_name(val, target):
         return f"[{val}]({target})"
 
     @Filter.register
-    @staticmethod
     def as_target(val, name):
         return f"[{name}]({val})"
 
 
 @Filter.register
-def get(val, target, delimitter=", "):
+def get_mul(val, target):
     return [
         d[target if isinstance(d, dict) else int(target)]
         for d in val if target in d
     ]
+
+
+@Filter.register
+def get(val, target):
+    return val[target if isinstance(val, dict) else int(target)]
 
 
 @Filter.register
@@ -146,6 +153,9 @@ def heading(val, level=1):
 
 @Filter.register
 def tabularize(vals, *headings):
+    if len(vals) == 0:
+        return ""
+
     def row(coll, fill=" "):
         return "|" + "|".join(fill + str(val) + fill for val in coll) + "|\n"
 
@@ -201,7 +211,19 @@ def adjust(val, adjustment, precision=0):
         raise SyntaxError(f"unkown adjustment \"{adjustment}\"")
 
 
-def _compute_tag(data, match, location, verbose):
+@Filter.register
+def for_each(vals, *filter_strings):
+    ress = []
+    for val in vals:
+        if len(val) > 0:
+            res = Filter.apply_filters(val, filter_strings)
+            if len(res) > 0:
+                ress.append(res)
+    return "\n".join(ress)
+
+
+# == Templating Engine
+def _compute_tag(data, match, location, verbose, default):
     if verbose:
         print(
             f"Found tag at {str(location): >10}:"
@@ -220,17 +242,27 @@ def _compute_tag(data, match, location, verbose):
             sep="\n"
         )
         res = None
+    except MissingKeyError as e:
+        if default:
+            res = default
+        else:
+            print(
+                "<!> unkown key",
+                f"--> {e.args[0]}",
+                sep="\n"
+            )
+            res = match
     return (match, res)
 
 
-# == Templating Engine
 def fill_template(
     template_text,
     data,
     *,
     verbose=False,
     number_of_workers=1,
-    executor=ThreadPoolExecutor
+    executor=ThreadPoolExecutor,
+    default=None
 ):
     with executor(number_of_workers) as pool:
         for res in as_completed(
@@ -240,7 +272,8 @@ def fill_template(
                     data,
                     match.group(0),
                     match.span(),
-                    verbose
+                    verbose,
+                    default,
                 )
                 for match in re.compile(r"{{[^\}]*}}").finditer(template_text)
             ]
@@ -328,6 +361,13 @@ if __name__ == "__main__":
         default=1,
         help="determin the number of concurrent workers"
     )
+    parser.add_argument(
+        "-d",
+        "--missing_key_default",
+        type=str,
+        default=None,
+        help="default value for a missing key"
+    )
     args = parser.parse_args()
     try:
         data = DataContainer.make_container(
@@ -340,7 +380,8 @@ if __name__ == "__main__":
             data,
             verbose=args.verbose,
             number_of_workers=args.number_of_workers,
-            executor=executors[args.executor_type]
+            executor=executors[args.executor_type],
+            default=args.missing_key_default
         )
         args.output_file.seek(0)
         args.output_file.write(new_text)
