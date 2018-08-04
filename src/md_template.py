@@ -52,22 +52,21 @@ class Filter:
     def apply_filters(cls, value, filters):
         if filters:
             for filter_string in filters:
-                if filter_string != "":
                     value = cls._apply_filter(value, filter_string)
         return str(value)
 
     @classmethod
     def _apply_filter(cls, value, filter_string):
-        try:
-            if filter_string in cls._cache:
-                return cls._cache[filter_string]
-            else:
-                func, args = cls._parse_filter(filter_string)
-                value = cls._filters[func](value, *args)
-                cls._cache[filter_string] = value
-                return value
-        except KeyError as e:
-                raise SyntaxError(f"unkown filter \"{func}\"")
+        if filter_string in cls._cache:
+            return cls._cache[filter_string]
+        elif filter_string != "":
+            try:
+                    func, args = cls._parse_filter(filter_string)
+                    value = cls._filters[func](value, *args)
+                    cls._cache[filter_string] = value
+                    return value
+            except KeyError as e:
+                    raise SyntaxError(f"unkown filter \"{func}\"")
         else:
             raise SyntaxError("illegal filter syntax")
 
