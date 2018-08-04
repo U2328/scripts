@@ -3,10 +3,11 @@ import re
 import math
 from dateutil import parser as datetime_parser
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from abc import ABCMeta, abstractmethod
 
 
 # == Classes
-class DataContainer:
+class DataContainer(metaclass=ABCMeta):
     __slots__ = ('_data')
     _available_containers = {}
 
@@ -19,12 +20,11 @@ class DataContainer:
         DataContainer._available_containers[file_type] = cls
 
     def __getitem__(self, key):
-        assert isinstance(key, str), "Key musst be of type str..."
-        key_chain = key.split('.')
-        current = self._data
-        for key_chain_link in key_chain:
-            current = current[key_chain_link]
-        return current
+        return self.get_value(key)
+
+    @abstractmethod
+    def get_value(self, key):
+        ...
 
 
 class JSON_DataContainer(DataContainer, file_type="json"):
@@ -35,23 +35,41 @@ class JSON_DataContainer(DataContainer, file_type="json"):
         else:
             self._data = json.load(file)
 
+    def get_value(self, key):
+        assert isinstance(key, str), "Key musst be of type str..."
+        key_chain = key.split('.')
+        current = self._data
+        for key_chain_link in key_chain:
+            current = current[key_chain_link]
+        return current
+
 
 class Filter:
-    filters = {}
+    _filters = {}
+    _cache = {}
 
     @classmethod
     def apply_filters(cls, value, filters):
         if filters:
             for filter_string in filters:
                 if filter_string != "":
-                    func, args = cls._parse_filter(filter_string)
-                    try:
-                        value = cls.filters[func](value, *args)
-                    except KeyError as e:
-                        raise SyntaxError(f"unkown filter \"{func}\"")
-                else:
-                    raise SyntaxError("illegal filter syntax")
+                    value = cls._apply_filter(value, filter_string)
         return str(value)
+
+    @classmethod
+    def _apply_filter(cls, value, filter_string):
+        try:
+            if filter_string in cls._cache:
+                return cls._cache[filter_string]
+            else:
+                func, args = cls._parse_filter(filter_string)
+                value = cls._filters[func](value, *args)
+                cls._cache[filter_string] = value
+                return value
+        except KeyError as e:
+                raise SyntaxError(f"unkown filter \"{func}\"")
+        else:
+            raise SyntaxError("illegal filter syntax")
 
     @classmethod
     def _parse_filter(cls, filter_string):
@@ -72,17 +90,19 @@ class Filter:
 
     @classmethod
     def register(cls, func):
-        cls.filters[func.__qualname__] = func
+        cls._filters[func.__qualname__] = func
         return func
 
 
 # == Filters
 class Link:
     @Filter.register
+    @staticmethod
     def as_name(val, target):
         return f"[{val}]({target})"
 
     @Filter.register
+    @staticmethod
     def as_target(val, name):
         return f"[{name}]({val})"
 
