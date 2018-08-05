@@ -57,6 +57,9 @@ class Filter:
     _cache = {}
     _filter_re = re.compile(r"^(?P<func>[^()]+)(?:\((?P<args>.*)\))?$")
     _arg_re = re.compile(r"(?P<arg>[^(),]+(?:\([^()]*\))?)")
+    escape_sequences = {
+        '\\n': '\n',
+    }
 
     @classmethod
     def apply_filters(cls, value, filters):
@@ -221,7 +224,14 @@ def for_each(vals, *filter_strings):
             res = Filter.apply_filters(val, filter_strings)
             if len(res) > 0:
                 ress.append(res)
-    return "\n".join(ress)
+    return ress
+
+
+@Filter.register
+def join(vals, delim, escape=None):
+    if escape and delim in Filter.escape_sequences:
+        delim = Filter.escape_sequences[delim]
+    return delim.join(vals)
 
 
 # == Templating Engine
