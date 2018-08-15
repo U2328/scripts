@@ -44,10 +44,10 @@ A small tool to fill a "*md template*" from json data.
 
 ```
 usage: md_template.py [-h] [-v] J T O
-        
+
 Fill a markdown tempalte with json data.
-                           
-positional arguments:   
+
+positional arguments:
   J              the json file to source from
   T              the template to fill
   O              the file to save the result in
