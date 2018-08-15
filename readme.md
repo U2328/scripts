@@ -59,3 +59,19 @@ optional arguments:
 *made on 2018-07-22 by Tim Fischer*
 *last worked on 2018-08-04 by Tim Fischer*
 
+# weather
+Very tiny "*cli*" for fetching weather data via wttr.in
+
+```
+usage: weather.py [-h] [-d] L
+
+Fetch weather data via wttr.in
+
+positional arguments:
+  L             the target location
+
+optional arguments:
+  -h, --help    show this help message and exit
+  -d, --detail  the level of detail
+```
+*made on 2018-08-15 by Tim Fischer*
