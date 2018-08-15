@@ -2,8 +2,18 @@ import json
 import re
 import math
 from dateutil import parser as datetime_parser
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor,\
+    as_completed
 from abc import ABCMeta, abstractmethod
+
+
+__all__ = (
+    "MissingKeyError",
+    "DataContainer",
+    "JSON_DataContainer",
+    "Filter",
+    "fill_template"
+)
 
 
 # == Exceptions
@@ -70,7 +80,7 @@ class Filter:
 
     @classmethod
     def _apply_filter(cls, value, filter_string):
-        cache_key = str(value) + "____" + filter_string
+        cache_key = str(value) + "___" + filter_string
         if cache_key in cls._cache:
             return cls._cache[cache_key]
         elif filter_string != "":
