@@ -4,7 +4,7 @@ import math
 from dateutil import parser as datetime_parser
 from abc import ABCMeta, abstractmethod
 import multiprocessing as mp
-
+import logging
 
 __all__ = (
     "MissingKeyError",
@@ -13,6 +13,25 @@ __all__ = (
     "Filter",
     "fill_template"
 )
+
+# == Logging
+logging.basicConfig(level=logging.INFO)
+logger = mp.get_logger()
+
+log_file_format = '[%(asctime)s %(processName)s, %(levelname)s] %(message)s'
+log_file_formater = logging.Formatter(log_file_format)
+log_file_handler = logging.FileHandler('md_template.log')
+log_file_handler.setFormatter(log_file_formater)
+log_file_handler.setLevel(logging.DEBUG)
+
+log_console_format = '%(message)s'
+log_console_formater = logging.Formatter(log_console_format)
+log_console_handler = logging.StreamHandler()
+log_console_handler.setFormatter(log_console_formater)
+log_console_handler.setLevel(logging.WARNING)
+
+logger.addHandler(log_console_handler)
+logger.addHandler(log_file_handler)
 
 
 # == Exceptions
@@ -84,12 +103,14 @@ class Filter:
             return cls._cache[cache_key]
         elif filter_string != "":
             try:
-                    func, args = cls._parse_filter(filter_string)
-                    value = cls._filters[func](value, *args)
-                    cls._cache[cache_key] = value
-                    return value
+                func, args = cls._parse_filter(filter_string)
+                value = cls._filters[func](value, *args)
+                cls._cache[cache_key] = value
+                return value
             except KeyError as e:
-                    raise SyntaxError(f"unkown filter \"{func}\"")
+                raise SyntaxError(f"unkown filter \"{func}\"")
+            except AttributeError as e:
+                raise SyntaxError("illegal filter syntax")
         else:
             raise SyntaxError("illegal filter syntax")
 
@@ -244,34 +265,37 @@ def join(vals, delim, escape=None):
 
 
 # == Templating Engine
-def _compute_tag(data, match, location, verbose, default):
+def _compute_tag(data, match, location, verbose, force, default):
     if verbose:
         print(
             f"Found tag at {str(location): >10}:"
             f" {match[2:-2]}"
         )
     match_parts = match[2:-2].split("|")
+    res = None
     try:
         res = Filter.apply_filters(
             data[match_parts[0]],
             match_parts[1:] if len(match_parts) > 1 else None
         )
     except SyntaxError as e:
-        print(
+        logger.warning(
             f"<!> Found {e.args[0]} at {str(location)}. "
             f"--> \"{match[2:-2]}\""
         )
-        res = None
     except MissingKeyError as e:
-        if default:
-            res = default
-        else:
-            print(f"<!> unkown key --> {e.args[0]}")
-            res = match
+        logger.warning(f"<!> unkown key --> {e.args[0]}")
+    except Exception as e:
+        logger.error(e.args[0])
+        raise e
+    finally:
+        if res is None:
+            res = match if not force or default is None else default
+
     return (match, res)
 
 
-def _worker(in_q, out_q, data, verbose, default):
+def _worker(in_q, out_q, data, verbose, force, default):
     while True:
         work_load = in_q.get()
         if work_load is None:
@@ -283,6 +307,7 @@ def _worker(in_q, out_q, data, verbose, default):
                 match,
                 location,
                 verbose,
+                force,
                 default
             )
             out_q.put(result)
@@ -294,9 +319,11 @@ def fill_template(
     data,
     *,
     verbose=False,
+    force=False,
     number_of_workers=1,
     default=None
 ):
+    processes = []
     total_tasks = 0
     in_q = mp.Queue()
     out_q = mp.Queue()
@@ -304,10 +331,12 @@ def fill_template(
     for match in re.compile(r"{{[^\}]*}}").finditer(template_text):
         in_q.put((match.group(0), match.span()))
         if total_tasks < number_of_workers:
-            mp.Process(
+            p = mp.Process(
                 target=_worker,
-                args=(in_q, out_q, data, verbose, default)
-            ).start()
+                args=(in_q, out_q, data, verbose, force, default)
+            )
+            processes.append(p)
+            p.start()
             total_tasks += 1
 
     for _ in range(total_tasks):
@@ -320,6 +349,9 @@ def fill_template(
         else:
             template_text = template_text.replace(*result)
 
+    for p in processes:
+        p.join()
+
     return template_text
 
 
@@ -327,17 +359,6 @@ def fill_template(
 if __name__ == "__main__":
     import argparse
     import os
-    from collections import namedtuple
-
-    Target = namedtuple("Target", ["file", "extension"])
-
-    def get_file(accessor):
-        def inner(path):
-            f = open(path, accessor)
-            name, extension = os.path.splitext(path)
-            return Target(f, extension[1:])
-
-        return inner
 
     def positive_int(val):
         try:
@@ -353,7 +374,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "data_file",
         metavar="D",
-        type=get_file("r"),
+        type=argparse.FileType("r"),
         help="the data file to source from",
     )
     parser.add_argument(
@@ -373,6 +394,12 @@ if __name__ == "__main__":
         "--verbose",
         action="store_true",
         help="display processing state"
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="apply default to syntax errors"
     )
     parser.add_argument(
         "-t",
@@ -399,15 +426,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         mp.set_start_method('spawn')
+        logger.info(
+            f"Starting work with D=\"{args.data_file.name}\" "
+            f"T=\"{args.template_file.name}\" O=\"{args.output_file.name}\""
+        )
         data = DataContainer.make_container(
-            args.type if args.type != 'default' else args.data_file.extension,
-            args.data_file.file
+            args.type
+            if args.type != 'default' else
+            os.path.splitext(args.data_file.name)[1][1:],
+            args.data_file
         )
         template_text = args.template_file.read()
         new_text = fill_template(
             template_text,
             data,
             verbose=args.verbose,
+            force=args.force,
             number_of_workers=args.number_of_workers,
             default=args.missing_key_default
         )
@@ -416,6 +450,10 @@ if __name__ == "__main__":
     except Exception as e:
         raise e
     finally:
-        args.data_file.file.close()
+        args.data_file.close()
         args.template_file.close()
         args.output_file.close()
+        logger.info(
+            f"Done with D=\"{args.data_file.name}\" "
+            f"T=\"{args.template_file.name}\" O=\"{args.output_file.name}\""
+        )
