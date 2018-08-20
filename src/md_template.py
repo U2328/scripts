@@ -2,9 +2,8 @@ import json
 import re
 import math
 from dateutil import parser as datetime_parser
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor,\
-    as_completed
 from abc import ABCMeta, abstractmethod
+import multiprocessing as mp
 
 
 __all__ = (
@@ -277,30 +276,55 @@ def _compute_tag(data, match, location, verbose, default):
     return (match, res)
 
 
+def _worker(in_q, out_q, data, verbose, default):
+    while True:
+        work_load = in_q.get()
+        if work_load is None:
+            break
+        else:
+            match, location = work_load
+            result = _compute_tag(
+                data,
+                match,
+                location,
+                verbose,
+                default
+            )
+            out_q.put(result)
+    out_q.put(None)
+
+
 def fill_template(
     template_text,
     data,
     *,
     verbose=False,
     number_of_workers=1,
-    executor=ThreadPoolExecutor,
     default=None
 ):
-    with executor(number_of_workers) as pool:
-        for res in as_completed(
-            [
-                pool.submit(
-                    _compute_tag,
-                    data,
-                    match.group(0),
-                    match.span(),
-                    verbose,
-                    default,
-                )
-                for match in re.compile(r"{{[^\}]*}}").finditer(template_text)
-            ]
-        ):
-            template_text = template_text.replace(*res.result())
+    total_tasks = 0
+    in_q = mp.Queue()
+    out_q = mp.Queue()
+
+    for match in re.compile(r"{{[^\}]*}}").finditer(template_text):
+        in_q.put((match.group(0), match.span()))
+        if total_tasks < number_of_workers:
+            mp.Process(
+                target=_worker,
+                args=(in_q, out_q, data, verbose, default)
+            ).start()
+            total_tasks += 1
+
+    for _ in range(total_tasks):
+        in_q.put(None)
+
+    while total_tasks > 0:
+        result = out_q.get()
+        if result is None:
+            total_tasks -= 1
+        else:
+            template_text = template_text.replace(*result)
+
     return template_text
 
 
@@ -327,11 +351,6 @@ if __name__ == "__main__":
                 raise argparse.ArgumentTypeError(f"{i} <= 0")
         except Exception as e:
             raise argparse.ArgumentTypeError(e.args(0))
-
-    executors = {
-        'thread': ThreadPoolExecutor,
-        'process': ProcessPoolExecutor
-    }
 
     parser = argparse.ArgumentParser(
         description="Fill a markdown tempalte with json data."
@@ -369,14 +388,6 @@ if __name__ == "__main__":
         help="read data file as certain type"
     )
     parser.add_argument(
-        "-e",
-        "--executor_type",
-        type=str,
-        default=list(executors.keys())[0],
-        choices=list(executors.keys()),
-        help="determin the multiprocessing model"
-    )
-    parser.add_argument(
         "-n",
         "--number_of_workers",
         type=positive_int,
@@ -392,6 +403,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     try:
+        mp.set_start_method('spawn')
         data = DataContainer.make_container(
             args.type if args.type != 'default' else args.data_file.extension,
             args.data_file.file
@@ -402,7 +414,6 @@ if __name__ == "__main__":
             data,
             verbose=args.verbose,
             number_of_workers=args.number_of_workers,
-            executor=executors[args.executor_type],
             default=args.missing_key_default
         )
         args.output_file.seek(0)

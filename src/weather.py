@@ -4,12 +4,6 @@ import urllib.request
 
 detail_map = ["0", "n", "1", "2", ""]
 url = "http://wttr.in/{location}?T{detail}"
-clean_chain = [
-    lambda s: s.decode("utf-8"),
-    lambda s: s.split("<pre>")[1],
-    lambda s: s.split("</pre>")[0],
-    lambda s: s.replace("&quot;", '"')
-]
 
 if __name__ == "__main__":
     import argparse
@@ -37,7 +31,10 @@ if __name__ == "__main__":
         location=args.location,
         detail=detail_map[min(args.detail, len(detail_map) - 1)],
     ))
-    data = request.read()
-    for clean_op in clean_chain:
-        data = clean_op(data)
+    data = request.\
+        read().\
+        decode("utf-8").\
+        split("<pre>")[1].\
+        split("</pre>")[0].\
+        replace("&quot;", '"')
     print(data)

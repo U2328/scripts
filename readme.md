@@ -43,21 +43,29 @@ optional arguments:
 A small tool to fill a "*md template*" from json data.
 
 ```
-usage: md_template.py [-h] [-v] J T O
+usage: md_template.py [-h] [-v] [-t {default,json}] [-n NUMBER_OF_WORKERS]
+                      [-d MISSING_KEY_DEFAULT]
+                      D T O
 
 Fill a markdown tempalte with json data.
 
 positional arguments:
-  J              the json file to source from
-  T              the template to fill
-  O              the file to save the result in
+  D                     the data file to source from
+  T                     the template to fill
+  O                     the file to save the result in
 
 optional arguments:
-  -h, --help     show this help message and exit
-  -v, --verbose  display processing state
+  -h, --help            show this help message and exit
+  -v, --verbose         display processing state
+  -t {default,json}, --type {default,json}
+                        read data file as certain type
+  -n NUMBER_OF_WORKERS, --number_of_workers NUMBER_OF_WORKERS
+                        determin the number of concurrent workers
+  -d MISSING_KEY_DEFAULT, --missing_key_default MISSING_KEY_DEFAULT
+                        default value for a missing key
 ```
 *made on 2018-07-22 by Tim Fischer*
-*last worked on 2018-08-04 by Tim Fischer*
+*last worked on 2018-08-20 by Tim Fischer*
 
 # weather
 Very tiny "*cli*" for fetching weather data via wttr.in
