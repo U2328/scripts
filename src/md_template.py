@@ -258,20 +258,15 @@ def _compute_tag(data, match, location, verbose, default):
         )
     except SyntaxError as e:
         print(
-            f"<!> Found {e.args[0]} at {str(location)}.",
-            f"--> \"{match[2:-2]}\"",
-            sep="\n"
+            f"<!> Found {e.args[0]} at {str(location)}. "
+            f"--> \"{match[2:-2]}\""
         )
         res = None
     except MissingKeyError as e:
         if default:
             res = default
         else:
-            print(
-                "<!> unkown key",
-                f"--> {e.args[0]}",
-                sep="\n"
-            )
+            print(f"<!> unkown key --> {e.args[0]}")
             res = match
     return (match, res)
 
