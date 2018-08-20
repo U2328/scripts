@@ -391,7 +391,7 @@ if __name__ == "__main__":
         "-n",
         "--number_of_workers",
         type=positive_int,
-        default=1,
+        default=mp.cpu_count(),
         help="determin the number of concurrent workers"
     )
     parser.add_argument(
