@@ -76,7 +76,10 @@ class JSON_DataContainer(DataContainer, file_type="json"):
             try:
                 current = current[key_chain_link]
             except KeyError as e:
-                raise MissingKeyError(e)
+                missing_part = str(e)[1:-1]
+                raise MissingKeyError(
+                    f"'{key.split(missing_part)[0]}{missing_part}'"
+                )
         return current
 
 
